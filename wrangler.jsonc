@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "inbox",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-04",
+  "workers_dev": false,
+  "routes": [{ "pattern": "mail.e-com.cc", "custom_domain": true }],
+  "d1_databases": [{ "binding": "DB", "database_name": "inbox", "database_id": "3a19ff4e-8358-403b-9898-7a9d0ab2b4d7" }],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "inbox" }],
+  "addresses": ["*@e-com.cc"]
+}
