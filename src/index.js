@@ -61,17 +61,48 @@ export async function cleanupOldMessages(env, name, now = Date.now()) {
   }
 }
 
-async function randomMailbox(env) {
+function randomName(length) {
   const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, byte => alphabet[byte % alphabet.length]).join('');
+}
+
+async function randomMailbox(env) {
   for (let length = 5; length <= 24; length++) {
     for (let attempt = 0; attempt < 10; attempt++) {
-      const bytes = crypto.getRandomValues(new Uint8Array(length));
-      const name = Array.from(bytes, byte => alphabet[byte % alphabet.length]).join('');
+      const name = randomName(length);
       const existing = await env.DB.prepare('SELECT 1 FROM mailboxes WHERE name = ? LIMIT 1').bind(name).first();
       if (!existing) return name;
     }
   }
   return null;
+}
+
+async function randomMailboxes(env, count) {
+  const addresses = [];
+  const used = new Set();
+  let queries = 0;
+  for (let length = 5; length <= 24 && addresses.length < count && queries < 40; length++) {
+    for (let round = 0; round < 3 && addresses.length < count && queries < 40; round++) {
+      const candidates = [];
+      for (let attempt = 0; candidates.length < count - addresses.length && attempt < count * 10; attempt++) {
+        const name = randomName(length);
+        if (used.has(name)) continue;
+        used.add(name);
+        candidates.push(name);
+      }
+      const existing = new Set();
+      for (let i = 0; i < candidates.length; i += 100) {
+        if (queries++ >= 40) return null;
+        const batch = candidates.slice(i, i + 100);
+        const placeholders = batch.map(() => '?').join(',');
+        const rows = (await env.DB.prepare(`SELECT name FROM mailboxes WHERE name IN (${placeholders})`).bind(...batch).all()).results;
+        for (const row of rows) existing.add(row.name);
+      }
+      for (const name of candidates) if (!existing.has(name)) addresses.push(`${name}@e-com.cc`);
+    }
+  }
+  return addresses.length === count ? addresses : null;
 }
 
 async function getMessage(env, name, seq) {
@@ -83,9 +114,18 @@ async function fetchPage(request, env) {
   const url = new URL(request.url);
   if (url.pathname === '/') return page('公开收件箱', '<p><a href="/rand">生成随机邮箱</a></p><p>访问 <code>/inbox/收件人名字</code> 查看公开邮件列表。</p>');
   if (url.pathname === '/rand') {
+    if (request.method === 'HEAD') return new Response(null, { status: 405, headers: { Allow: 'GET' } });
     const name = await randomMailbox(env);
     if (!name) return new Response('No available mailbox name', { status: 503 });
     return new Response(`${name}@e-com.cc`, { headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
+  }
+  if (url.pathname.startsWith('/randbat/')) {
+    if (request.method === 'HEAD') return new Response(null, { status: 405, headers: { Allow: 'GET' } });
+    const countPart = url.pathname.slice('/randbat/'.length);
+    if (!/^[1-9]\d*$/.test(countPart) || Number(countPart) > 1000) return new Response('Count must be between 1 and 1000', { status: 400 });
+    const addresses = await randomMailboxes(env, Number(countPart));
+    if (!addresses) return new Response('No available mailbox name', { status: 503 });
+    return new Response(addresses.join('\n'), { headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
   }
   if (!url.pathname.startsWith('/inbox/')) return notFound();
   const parts = url.pathname.slice('/inbox/'.length).split('/');

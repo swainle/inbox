@@ -30,15 +30,51 @@ test('public inbox shows fixed columns and escapes subjects', async () => {
   assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
 });
 
-test('random mailbox checks existing names and uses the shortest length', async () => {
-  let checks = 0;
-  const env = { DB: { prepare: () => ({ bind: () => ({ first: async () => (++checks === 1 ? { 1: 1 } : null) }) }) } };
+test('random mailbox checks existing names and retries a collision', async () => {
+  let attempts = 0;
+  const env = { DB: { prepare: () => ({ bind: () => ({ first: async () => (++attempts === 1 ? { 1: 1 } : null) }) }) } };
   const response = await worker.fetch(new Request('https://mail.e-com.cc/rand'), env);
   const address = await response.text();
   assert.equal(response.status, 200);
-  assert.equal(checks, 2);
+  assert.equal(attempts, 2);
   assert.match(response.headers.get('Content-Type'), /^text\/plain/);
   assert.match(address, /^[a-z0-9]{5}@e-com\.cc$/);
+});
+
+test('batch endpoint returns distinct addresses without reserving and limits count', async () => {
+  let queries = 0;
+  const env = { DB: { prepare: sql => {
+    assert.match(sql, /^SELECT name FROM mailboxes WHERE name IN /);
+    return { bind: (...names) => ({ all: async () => {
+      queries++;
+      assert.ok(names.length <= 100);
+      return { results: [] };
+    } }) };
+  } } };
+  const response = await worker.fetch(new Request('https://mail.e-com.cc/randbat/1000'), env);
+  const addresses = (await response.text()).split('\n');
+  assert.equal(response.status, 200);
+  assert.equal(addresses.length, 1000);
+  assert.equal(new Set(addresses).size, 1000);
+  assert.ok(queries <= 20);
+  assert.ok(addresses.every(address => /^[a-z0-9]{5}@e-com\.cc$/.test(address)));
+  assert.equal((await worker.fetch(new Request('https://mail.e-com.cc/randbat/1001'), env)).status, 400);
+  assert.equal((await worker.fetch(new Request('https://mail.e-com.cc/randbat/10', { method: 'HEAD' }), env)).status, 405);
+});
+
+test('batch retries a duplicate generated within the same request', async () => {
+  const original = crypto.getRandomValues;
+  let calls = 0;
+  let reads = 0;
+  crypto.getRandomValues = bytes => { bytes.fill(calls++ < 2 ? 0 : 1); return bytes; };
+  try {
+    const env = { DB: { prepare: () => ({ bind: () => ({ all: async () => { reads++; return { results: [] }; } }) }) } };
+    const response = await worker.fetch(new Request('https://mail.e-com.cc/randbat/2'), env);
+    assert.equal(await response.text(), 'aaaaa@e-com.cc\nbbbbb@e-com.cc');
+    assert.equal(reads, 1);
+  } finally {
+    crypto.getRandomValues = original;
+  }
 });
 
 test('opening a message marks it read and shows text with attachment sizes', async () => {
