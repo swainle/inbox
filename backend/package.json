@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test",
+    "dev": "wrangler dev",
+    "test": "node test/basic.test.js",
     "deploy": "wrangler deploy"
   },
   "dependencies": {

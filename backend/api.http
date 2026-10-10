@@ -1,0 +1,70 @@
+@baseUrl = http://localhost:8787
+@tempId = by6op
+@accountId = 24bjr
+@seq = 1
+@part = 1
+@session = session=a1870e77482575607e69cd5a051c9790ba815d60e02babb157599871069f67f5
+
+### 创建临时邮箱，复制返回的 address 前缀到 tempId
+POST {{baseUrl}}/api/temp-mailboxes
+
+### 查看临时邮箱
+GET {{baseUrl}}/api/temp-mailboxes/{{tempId}}/messages
+
+### 注册并登录，复制 Set-Cookie 的 session 到上方变量
+POST {{baseUrl}}/api/register
+Content-Type: application/json
+
+{"username":"alice1","password":"replace-with-password"}
+
+### 已注册账号登录，复制 Set-Cookie 的 session 到上方变量
+POST {{baseUrl}}/api/login
+Content-Type: application/json
+
+{"username":"alice1","password":"replace-with-password"}
+
+### 查询当前账号
+GET {{baseUrl}}/api/me
+Cookie: {{session}}
+
+### 创建长效邮箱，复制返回的 id 到 accountId
+POST {{baseUrl}}/api/account-mailboxes
+Cookie: {{session}}
+
+### 查询自己的长效邮箱
+GET {{baseUrl}}/api/account-mailboxes/{{accountId}}/messages
+Cookie: {{session}}
+
+### 自定义长效邮箱名
+POST {{baseUrl}}/api/account-mailboxes
+Content-Type: application/json
+Cookie: {{session}}
+
+{"name":"mybox"}
+
+### 删除自己的长效邮箱（同时删除邮件和附件）
+DELETE {{baseUrl}}/api/account-mailboxes/{{accountId}}
+Cookie: {{session}}
+
+### 按地址前缀查看单个邮箱，对应 /mail/?address={{accountId}}；长效邮箱需所属账号登录
+GET {{baseUrl}}/api/mailboxes/{{accountId}}/messages
+Cookie: {{session}}
+
+### 查看邮件详情
+GET {{baseUrl}}/api/account-mailboxes/{{accountId}}/messages/{{seq}}
+Cookie: {{session}}
+
+### 下载附件
+GET {{baseUrl}}/api/account-mailboxes/{{accountId}}/messages/{{seq}}/attachments/{{part}}
+Cookie: {{session}}
+
+### 删除自己长效邮箱中的一封邮件及附件
+DELETE {{baseUrl}}/api/account-mailboxes/{{accountId}}/messages/{{seq}}
+Cookie: {{session}}
+
+### 旧公开入口：应为 404
+GET {{baseUrl}}/inbox/{{accountId}}
+
+### 退出
+POST {{baseUrl}}/api/logout
+Cookie: {{session}}
